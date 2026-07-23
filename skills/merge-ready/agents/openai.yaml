@@ -1,0 +1,4 @@
+interface:
+  display_name: "Merge Ready"
+  short_description: "Human-gated PR readiness; never merge"
+  default_prompt: "Use $merge-ready to review this branch, return every finding for approval, prepare its PR without merging it, and prune only after merge is confirmed."
