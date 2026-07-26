@@ -1,11 +1,11 @@
 ---
 name: merge-ready
-description: Drive a GitHub feature branch through human-gated merge review, OpenCode Go diff/security/documentation/conflict/CI analysis, verified fixes, native and remote CI, PR handoff, and merge-confirmed local cleanup. Use when asked to make work merge-ready, review or repair a branch before a PR, resolve merge conflicts, investigate related PRs/issues, prepare or update a PR, monitor a PR through merge, or prune its local branch/worktree afterward. Never merge the PR.
+description: Drive a GitHub feature branch through human-gated merge review, local OCR delegation, OpenCode Go diff/security/documentation/conflict/CI analysis, verified fixes, native and remote CI, PR handoff, and merge-confirmed local cleanup. Use when asked to make work merge-ready, review or repair a branch before a PR, resolve merge conflicts, investigate related PRs/issues, prepare or update a PR, monitor a PR through merge, or prune its local branch/worktree afterward. Never merge the PR.
 ---
 
 # Merge Ready
 
-Prepare a dedicated feature branch for human review. Treat Git and repository-native checks as authoritative; treat OpenCode as an untrusted, read-only reviewer.
+Prepare a dedicated feature branch for human review. Treat Git and repository-native checks as authoritative; treat OCR and OpenCode as untrusted, read-only reviewers.
 
 ## Non-negotiable boundaries
 
@@ -72,7 +72,28 @@ git merge-tree "$(git merge-base HEAD origin/<base>)" HEAD origin/<base>
 
 Include in-scope untracked files after checking that none contain secrets. Use `git merge-tree` to forecast conflicts without changing the index or worktree. In Phase 1, discover CI commands and run only checks proven not to mutate the worktree, such as `git diff --check`; defer full native CI to Phase 2.
 
-### 4. Run OpenCode Go read-only reviews
+### 4. Run local OCR delegation when available
+
+If `ocr` is installed, use delegation mode to select reviewable files and
+resolve their rules without configuring an OCR LLM provider:
+
+```bash
+ocr delegate preview --from "origin/<base>" --to HEAD
+ocr delegate rule <reviewable-paths>
+```
+
+Use the preview's `merge_base` to read each selected diff, then review it
+against the resolved rules. Verify every OCR-derived finding against the actual
+file and repository contract before reporting it as `MR-OCR-NNN`.
+
+OCR is an optional local review layer, not a completeness or readiness gate.
+Continue the normal full-diff review for everything OCR excludes, especially
+deleted files, unsupported extensions, documentation, and untracked files. If
+`ocr` is unavailable or fails, record `OCR: not run — <reason>` and continue;
+do not install or configure it inside this workflow. Return confirmed findings
+through the finding gate and never fix them automatically.
+
+### 5. Run OpenCode Go read-only reviews
 
 Require:
 
@@ -133,7 +154,7 @@ Add the axis-specific question:
 
 OpenCode output is a lead, not proof. Verify every finding against the actual file, history, repository contract, and relevant checks. Mark it `CONFIRMED`, `MODIFIED`, or `REJECTED`; never infer missing evidence.
 
-### 5. Return the finding gate
+### 6. Return the finding gate
 
 Return one report to the active host session and stop:
 
