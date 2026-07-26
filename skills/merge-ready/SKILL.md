@@ -1,11 +1,11 @@
 ---
 name: merge-ready
-description: Drive a GitHub feature branch through human-gated merge review, OpenCode Go diff/security/documentation/conflict/CI analysis, verified fixes, native and remote CI, PR handoff, and merge-confirmed local cleanup. Use when asked to make work merge-ready, review or repair a branch before a PR, resolve merge conflicts, investigate related PRs/issues, prepare or update a PR, monitor a PR through merge, or prune its local branch/worktree afterward. Never merge the PR.
+description: Drive a GitHub feature branch through human-gated merge review, local OCR delegation, task-routed multi-model OpenCode analysis, verified fixes, native and remote CI, PR handoff, and merge-confirmed local cleanup. Use when asked to make work merge-ready, review or repair a branch before a PR, resolve merge conflicts, investigate related PRs/issues, prepare or update a PR, monitor a PR through merge, or prune its local branch/worktree afterward. Never merge the PR.
 ---
 
 # Merge Ready
 
-Prepare a dedicated feature branch for human review. Treat Git and repository-native checks as authoritative; treat OpenCode as an untrusted, read-only reviewer.
+Prepare a dedicated feature branch for human review. Treat Git and repository-native checks as authoritative; treat OCR and OpenCode as untrusted, read-only reviewers.
 
 ## Non-negotiable boundaries
 
@@ -72,15 +72,67 @@ git merge-tree "$(git merge-base HEAD origin/<base>)" HEAD origin/<base>
 
 Include in-scope untracked files after checking that none contain secrets. Use `git merge-tree` to forecast conflicts without changing the index or worktree. In Phase 1, discover CI commands and run only checks proven not to mutate the worktree, such as `git diff --check`; defer full native CI to Phase 2.
 
-### 4. Run OpenCode Go read-only reviews
+### 4. Run local OCR delegation when available
+
+If `ocr` is installed, use delegation mode to select reviewable files and
+resolve their rules without configuring an OCR LLM provider:
+
+```bash
+ocr delegate preview --from "origin/<base>" --to HEAD
+ocr delegate rule <reviewable-paths>
+```
+
+Use the preview's `merge_base` to read each selected diff, then review it
+against the resolved rules. Verify every OCR-derived finding against the actual
+file and repository contract before reporting it as `MR-OCR-NNN`.
+
+OCR is an optional local review layer, not a completeness or readiness gate.
+Continue the normal full-diff review for everything OCR excludes, especially
+deleted files, unsupported extensions, documentation, and untracked files. If
+`ocr` is unavailable or fails, record `OCR: not run — <reason>` and continue;
+do not install or configure it inside this workflow. Return confirmed findings
+through the finding gate and never fix them automatically.
+
+### 5. Run task-routed OpenCode read-only reviews
 
 Require:
 
 - `opencode run`
-- model `opencode-go/grok-4.5`, unless the user explicitly selected another OpenCode model
+- `opencode models --pure` to confirm each selected model is currently available
 - JSON output
 - external plugins disabled
 - runtime permissions that deny every tool
+
+Before sending non-public material, name the destination and payload and obtain
+explicit authorization. A user may grant standing authorization for future
+`merge-ready` reviews to a named model. Once recorded in durable user context,
+that authorization covers only secret-screened, in-scope review attachments
+sent to that exact destination with every model tool denied. Keep disclosing
+the included paths. Require fresh approval for a different model, destination,
+scope expansion, or uncertain secret screening.
+
+Route review axes across different models instead of sending every pass to one
+reviewer. These are preferred model IDs; verify them at runtime:
+
+| Axis | Preferred model | Purpose |
+|---|---|---|
+| `diff` | `opencode/north-mini-code-free` | General code intent and regression review |
+| `security` | `opencode-go/grok-4.5` | Trust-boundary and data-loss analysis |
+| `documentation` | `opencode/deepseek-v4-flash-free` | Contract and operator-documentation accuracy |
+| `conflicts` | `opencode/nemotron-3-ultra-free` | NVIDIA Nemotron integration review |
+| `ci` | `opencode/north-mini-code-free` | Scripts, runtime, lockfile, and gate consistency |
+| `frontend-design` | `opencode-go/kimi-k3` | Conditional UI, responsive, accessibility, and design-system review |
+
+Run `frontend-design` only when the branch changes frontend presentation,
+interaction, responsive behavior, or design-system code. Reserve Kimi K3 for
+that axis; never route backend, security, documentation, conflict, or CI review
+to Kimi K3.
+
+If a preferred model is unavailable, select a currently active non-Kimi model
+suited to that axis. Preserve reviewer diversity when at least three approved
+models are available. Disclose the replacement before sending non-public
+material; do not silently broaden a standing authorization to another model or
+provider.
 
 Use the host to prepare attachments outside the repository containing:
 
@@ -92,7 +144,8 @@ Use the host to prepare attachments outside the repository containing:
 
 List the included paths. Exclude binary content. Refuse any sensitive path or credential-like content; use the repository's existing secret scanner when available and return `BLOCKED` when screening is uncertain. Delete the temporary attachments after the review.
 
-Invoke one independent pass per axis: `diff`, `security`, `documentation`, `conflicts`, and `ci`.
+Invoke one independent pass per required axis: `diff`, `security`,
+`documentation`, `conflicts`, and `ci`, plus conditional `frontend-design`.
 Capture each pass separately. Run passes in parallel when the host supports it and timebox each at 90 seconds. If an axis fails or times out, preserve completed results, mark that axis `BLOCKED`, and return the gate; never silently retry with broader permissions.
 
 ```bash
@@ -103,7 +156,7 @@ opencode run \
   "<axis prompt>" \
   --pure \
   --agent plan \
-  --model opencode-go/grok-4.5 \
+  --model "<selected-model>" \
   --format json \
   --dir "<repo-root>" \
   --file "<secret-screened-attachment>"
@@ -130,10 +183,11 @@ Add the axis-specific question:
 - `documentation` — Do behavior, operator steps, contracts, and public interfaces remain accurately documented?
 - `conflicts` — Does the forecast or completed integration preserve both branches' intent without silently dropping behavior?
 - `ci` — Do changed workflows, scripts, lockfiles, runtime versions, and quality gates agree with repository policy?
+- `frontend-design` — Does the UI preserve the project's design system, responsive behavior, accessibility states, and stated user intent without generic design drift?
 
 OpenCode output is a lead, not proof. Verify every finding against the actual file, history, repository contract, and relevant checks. Mark it `CONFIRMED`, `MODIFIED`, or `REJECTED`; never infer missing evidence.
 
-### 5. Return the finding gate
+### 6. Return the finding gate
 
 Return one report to the active host session and stop:
 

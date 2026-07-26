@@ -2,7 +2,7 @@
 
 Human-gated merge readiness for agent workflows.
 
-`merge-ready` uses OpenCode Go as a read-only second opinion across branch diffs, security, documentation, conflicts, and CI. Every finding returns to the active host session for evaluation before any fix, commit, push, or PR update. The skill never merges a PR.
+`merge-ready` uses task-routed OpenCode models as read-only second opinions across branch diffs, security, documentation, conflicts, CI, and frontend design. Every finding returns to the active host session for evaluation before any fix, commit, push, or PR update. The skill never merges a PR.
 
 ## Install
 
@@ -13,7 +13,7 @@ npx skills add https://github.com/vizuh/merge-ready --skill merge-ready
 ## What it does
 
 1. Inspects the repository contract, feature branch, worktrees, PR, related open work, complete diff, and merge-conflict forecast.
-2. Runs isolated read-only reviews with `opencode-go/grok-4.5` by default.
+2. Routes isolated read-only review axes across code, reasoning, free NVIDIA Nemotron, and documentation models; Kimi K3 is reserved for frontend/design work.
 3. Verifies and reports every finding, then stops for a human decision.
 4. Applies only approved fixes, checkpointing base integration and review repairs.
 5. Runs the repository's own CI-equivalent checks.
@@ -25,10 +25,18 @@ npx skills add https://github.com/vizuh/merge-ready --skill merge-ready
 
 - Git
 - GitHub remote and authenticated GitHub CLI
-- OpenCode with access to `opencode-go/grok-4.5`, or another model explicitly selected by the user
+- OpenCode with access to the task-routed models declared in the skill, or user-approved active replacements
 - A host agent capable of returning findings and waiting for explicit evaluation
 
 The OpenCode invocation disables external plugins and denies every tool. It reviews only secret-screened attachments prepared by the host. Git and native/remote CI remain the sources of truth.
+
+Current preferred routing uses `opencode/north-mini-code-free` for general diff
+and CI review, `opencode-go/grok-4.5` for security,
+`opencode/deepseek-v4-flash-free` for documentation,
+`opencode/nemotron-3-ultra-free` for NVIDIA conflict review, and
+`opencode-go/kimi-k3` only for conditional frontend/design review. The skill
+verifies availability and obtains destination-specific authorization before
+sending non-public material.
 
 ## Hard boundaries
 
