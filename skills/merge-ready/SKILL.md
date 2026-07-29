@@ -1,11 +1,11 @@
 ---
 name: merge-ready
-description: Drive a GitHub feature branch through human-gated merge review, OpenCode Go diff/security/documentation/conflict/CI analysis, verified fixes, native and remote CI, PR handoff, and merge-confirmed local cleanup. Use when asked to make work merge-ready, review or repair a branch before a PR, resolve merge conflicts, investigate related PRs/issues, prepare or update a PR, monitor a PR through merge, or prune its local branch/worktree afterward. Never merge the PR.
+description: Drive a GitHub feature branch through human-gated merge review, local OCR delegation, task-routed multi-model OpenCode analysis, verified fixes, native and remote CI, PR handoff, and merge-confirmed local cleanup. Use when asked to make work merge-ready, review or repair a branch before a PR, resolve merge conflicts, investigate related PRs/issues, prepare or update a PR, monitor a PR through merge, or prune its local branch/worktree afterward. Never merge the PR.
 ---
 
 # Merge Ready
 
-Prepare a dedicated feature branch for human review. Treat Git and repository-native checks as authoritative; treat OpenCode as an untrusted, read-only reviewer.
+Prepare a dedicated feature branch for human review. Treat Git and repository-native checks as authoritative; treat OCR and OpenCode as untrusted, read-only reviewers.
 
 ## Non-negotiable boundaries
 
@@ -16,6 +16,7 @@ Prepare a dedicated feature branch for human review. Treat Git and repository-na
 - Never resolve or commit a newly discovered conflict, fix a new CI failure, push, or update a PR until the host session has evaluated that finding.
 - Never remove a branch or worktree until GitHub reports the PR as merged and the exact local targets are clean and revalidated.
 - Preserve unrelated changes. If ownership is unclear, stop.
+- Never install pre-commit, add hook configuration, or maintain a parallel check manifest. Use an existing pre-commit setup only when repository instructions or CI establish it as native.
 
 Use four terminal states:
 
@@ -33,6 +34,14 @@ Keep this phase read-only except for `git fetch`.
 Read the applicable agent instructions and current handoff/checkpoint files. Discover the repository's real default branch, commit conventions, PR template, and worktree rules. This workflow requires a GitHub remote and authenticated GitHub CLI; otherwise return `BLOCKED`. Do not assume `main` or a package manager.
 
 Discover CI from the repository instructions, contributor docs, GitHub workflows, required PR checks, task runners, package scripts, and existing aggregate commands. Map remote gates to documented local equivalents; record any gate that cannot run locally.
+
+Assign each discovered check a stable runtime ID such as `MR-CHECK-NNN`. Record
+its authority (`required`, `repository-native`, or `advisory`), stage
+(`inspection`, `post-fix`, `pre-PR`, or `remote`), scope, exact command and
+working directory, result, worktree mutation, and whether a rerun is required.
+Record branch, base, and head SHA once at report level.
+
+If `.pre-commit-config.yaml` exists, inspect whether repository instructions or CI invoke it. Treat it as repository-native only when that evidence exists. If the branch changes the configuration, discover its documented validation path. Do not install, configure, or silently execute pre-commit solely for this workflow.
 
 Inspect:
 
@@ -72,15 +81,67 @@ git merge-tree "$(git merge-base HEAD origin/<base>)" HEAD origin/<base>
 
 Include in-scope untracked files after checking that none contain secrets. Use `git merge-tree` to forecast conflicts without changing the index or worktree. In Phase 1, discover CI commands and run only checks proven not to mutate the worktree, such as `git diff --check`; defer full native CI to Phase 2.
 
-### 4. Run OpenCode Go read-only reviews
+### 4. Run local OCR delegation when available
+
+If `ocr` is installed, use delegation mode to select reviewable files and
+resolve their rules without configuring an OCR LLM provider:
+
+```bash
+ocr delegate preview --from "origin/<base>" --to HEAD
+ocr delegate rule <reviewable-paths>
+```
+
+Use the preview's `merge_base` to read each selected diff, then review it
+against the resolved rules. Verify every OCR-derived finding against the actual
+file and repository contract before reporting it as `MR-OCR-NNN`.
+
+OCR is an optional local review layer, not a completeness or readiness gate.
+Continue the normal full-diff review for everything OCR excludes, especially
+deleted files, unsupported extensions, documentation, and untracked files. If
+`ocr` is unavailable or fails, record `OCR: not run — <reason>` and continue;
+do not install or configure it inside this workflow. Return confirmed findings
+through the finding gate and never fix them automatically.
+
+### 5. Run task-routed OpenCode read-only reviews
 
 Require:
 
 - `opencode run`
-- model `opencode-go/grok-4.5`, unless the user explicitly selected another OpenCode model
+- `opencode models --pure` to confirm each selected model is currently available
 - JSON output
 - external plugins disabled
 - runtime permissions that deny every tool
+
+Before sending non-public material, name the destination and payload and obtain
+explicit authorization. A user may grant standing authorization for future
+`merge-ready` reviews to a named model. Once recorded in durable user context,
+that authorization covers only secret-screened, in-scope review attachments
+sent to that exact destination with every model tool denied. Keep disclosing
+the included paths. Require fresh approval for a different model, destination,
+scope expansion, or uncertain secret screening.
+
+Route review axes across different models instead of sending every pass to one
+reviewer. These are preferred model IDs; verify them at runtime:
+
+| Axis | Preferred model | Purpose |
+|---|---|---|
+| `diff` | `opencode/north-mini-code-free` | General code intent and regression review |
+| `security` | `opencode-go/grok-4.5` | Trust-boundary and data-loss analysis |
+| `documentation` | `opencode/deepseek-v4-flash-free` | Contract and operator-documentation accuracy |
+| `conflicts` | `opencode/nemotron-3-ultra-free` | NVIDIA Nemotron integration review |
+| `ci` | `opencode/north-mini-code-free` | Scripts, runtime, lockfile, and gate consistency |
+| `frontend-design` | `opencode-go/kimi-k3` | Conditional UI, responsive, accessibility, and design-system review |
+
+Run `frontend-design` only when the branch changes frontend presentation,
+interaction, responsive behavior, or design-system code. Reserve Kimi K3 for
+that axis; never route backend, security, documentation, conflict, or CI review
+to Kimi K3.
+
+If a preferred model is unavailable, select a currently active non-Kimi model
+suited to that axis. Preserve reviewer diversity when at least three approved
+models are available. Disclose the replacement before sending non-public
+material; do not silently broaden a standing authorization to another model or
+provider.
 
 Use the host to prepare attachments outside the repository containing:
 
@@ -92,7 +153,8 @@ Use the host to prepare attachments outside the repository containing:
 
 List the included paths. Exclude binary content. Refuse any sensitive path or credential-like content; use the repository's existing secret scanner when available and return `BLOCKED` when screening is uncertain. Delete the temporary attachments after the review.
 
-Invoke one independent pass per axis: `diff`, `security`, `documentation`, `conflicts`, and `ci`.
+Invoke one independent pass per required axis: `diff`, `security`,
+`documentation`, `conflicts`, and `ci`, plus conditional `frontend-design`.
 Capture each pass separately. Run passes in parallel when the host supports it and timebox each at 90 seconds. If an axis fails or times out, preserve completed results, mark that axis `BLOCKED`, and return the gate; never silently retry with broader permissions.
 
 ```bash
@@ -103,7 +165,7 @@ opencode run \
   "<axis prompt>" \
   --pure \
   --agent plan \
-  --model opencode-go/grok-4.5 \
+  --model "<selected-model>" \
   --format json \
   --dir "<repo-root>" \
   --file "<secret-screened-attachment>"
@@ -130,10 +192,11 @@ Add the axis-specific question:
 - `documentation` — Do behavior, operator steps, contracts, and public interfaces remain accurately documented?
 - `conflicts` — Does the forecast or completed integration preserve both branches' intent without silently dropping behavior?
 - `ci` — Do changed workflows, scripts, lockfiles, runtime versions, and quality gates agree with repository policy?
+- `frontend-design` — Does the UI preserve the project's design system, responsive behavior, accessibility states, and stated user intent without generic design drift?
 
 OpenCode output is a lead, not proof. Verify every finding against the actual file, history, repository contract, and relevant checks. Mark it `CONFIRMED`, `MODIFIED`, or `REJECTED`; never infer missing evidence.
 
-### 5. Return the finding gate
+### 6. Return the finding gate
 
 Return one report to the active host session and stop:
 
@@ -153,10 +216,12 @@ PR: <url or none>
   - Proposed action: <smallest fix or no action>
   - Blocks readiness: yes | no
 
-### Conflicts and CI
+### Conflicts and check ledger
 - Forecast conflicts: <none or exact paths>
-- Native checks discovered: <commands>
-- Read-only results: <pass/fail/not run with reason>
+
+| ID | Authority | Stage | Scope | Command / cwd | Result | Mutation | Rerun required |
+|---|---|---|---|---|---|---|---|
+| MR-CHECK-001 | <required/native/advisory> | <stage> | <files/staged/ref/all> | `<command>` / `<cwd>` | <pass/fail/not run + exit code when relevant> | <yes/no/n/a> | <yes/no> |
 
 ### Related open work
 - <PR/issue URL> — <specific relation, or none>
@@ -196,9 +261,28 @@ If a fix exposes a new issue, return to the finding gate before continuing.
 
 ### 3. Run repository-native CI
 
-Run the documented local CI equivalent in the repository's own order. Prefer an existing aggregate check; otherwise use the project's documented lint, typecheck, tests, and build commands. Do not invent `pnpm ci:check` or add CI machinery.
+Run focused checks after each approved fix, then run the documented local CI
+equivalent in the repository's own order. Prefer an existing aggregate check;
+otherwise use the project's documented lint, typecheck, tests, and build
+commands. Ref-range or file-scoped checks may speed up iteration, but they do
+not replace the repository's authoritative full readiness command. Do not
+invent `pnpm ci:check` or add CI machinery.
+
+For each check, record its ledger entry and capture `git status --short` before
+and after execution. A nonzero exit or worktree mutation is a new finding, not
+an implicit approved fix. Stop for host evaluation; after any approved
+remediation, rerun the affected check and the authoritative readiness command.
+
+When the repository already makes pre-commit authoritative, use its documented
+invocation in the appropriate stage. If the branch changes
+`.pre-commit-config.yaml`, run the repository's native configuration validation
+path. Never install pre-commit or bootstrap Git hooks inside this workflow.
 
 A failure is a new finding. Highlight it, return it to the host session, and stop before fixing it.
+
+An optional check may be skipped only by exact check ID with a reason, approver,
+and current-PR scope recorded in the ledger. A required check cannot be skipped
+into `READY_FOR_REVIEW`.
 
 ## Phase 3: Prepare the PR
 
@@ -210,6 +294,7 @@ After all approved work is committed and native CI is clean:
 4. Push normally; never force-push.
 5. Open or update the PR using the repository template.
 6. Read required remote checks to a terminal result. A pending check is reported as pending; a failed check is a new finding and returns through the gate.
+7. Append required remote checks to the same ledger with stage `remote`.
 
 The PR description must include:
 
