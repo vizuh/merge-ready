@@ -16,6 +16,7 @@ Prepare a dedicated feature branch for human review. Treat Git and repository-na
 - Never resolve or commit a newly discovered conflict, fix a new CI failure, push, or update a PR until the host session has evaluated that finding.
 - Never remove a branch or worktree until GitHub reports the PR as merged and the exact local targets are clean and revalidated.
 - Preserve unrelated changes. If ownership is unclear, stop.
+- Never install pre-commit, add hook configuration, or maintain a parallel check manifest. Use an existing pre-commit setup only when repository instructions or CI establish it as native.
 
 Use four terminal states:
 
@@ -33,6 +34,14 @@ Keep this phase read-only except for `git fetch`.
 Read the applicable agent instructions and current handoff/checkpoint files. Discover the repository's real default branch, commit conventions, PR template, and worktree rules. This workflow requires a GitHub remote and authenticated GitHub CLI; otherwise return `BLOCKED`. Do not assume `main` or a package manager.
 
 Discover CI from the repository instructions, contributor docs, GitHub workflows, required PR checks, task runners, package scripts, and existing aggregate commands. Map remote gates to documented local equivalents; record any gate that cannot run locally.
+
+Assign each discovered check a stable runtime ID such as `MR-CHECK-NNN`. Record
+its authority (`required`, `repository-native`, or `advisory`), stage
+(`inspection`, `post-fix`, `pre-PR`, or `remote`), scope, exact command and
+working directory, result, worktree mutation, and whether a rerun is required.
+Record branch, base, and head SHA once at report level.
+
+If `.pre-commit-config.yaml` exists, inspect whether repository instructions or CI invoke it. Treat it as repository-native only when that evidence exists. If the branch changes the configuration, discover its documented validation path. Do not install, configure, or silently execute pre-commit solely for this workflow.
 
 Inspect:
 
@@ -207,10 +216,12 @@ PR: <url or none>
   - Proposed action: <smallest fix or no action>
   - Blocks readiness: yes | no
 
-### Conflicts and CI
+### Conflicts and check ledger
 - Forecast conflicts: <none or exact paths>
-- Native checks discovered: <commands>
-- Read-only results: <pass/fail/not run with reason>
+
+| ID | Authority | Stage | Scope | Command / cwd | Result | Mutation | Rerun required |
+|---|---|---|---|---|---|---|---|
+| MR-CHECK-001 | <required/native/advisory> | <stage> | <files/staged/ref/all> | `<command>` / `<cwd>` | <pass/fail/not run + exit code when relevant> | <yes/no/n/a> | <yes/no> |
 
 ### Related open work
 - <PR/issue URL> — <specific relation, or none>
@@ -250,9 +261,28 @@ If a fix exposes a new issue, return to the finding gate before continuing.
 
 ### 3. Run repository-native CI
 
-Run the documented local CI equivalent in the repository's own order. Prefer an existing aggregate check; otherwise use the project's documented lint, typecheck, tests, and build commands. Do not invent `pnpm ci:check` or add CI machinery.
+Run focused checks after each approved fix, then run the documented local CI
+equivalent in the repository's own order. Prefer an existing aggregate check;
+otherwise use the project's documented lint, typecheck, tests, and build
+commands. Ref-range or file-scoped checks may speed up iteration, but they do
+not replace the repository's authoritative full readiness command. Do not
+invent `pnpm ci:check` or add CI machinery.
+
+For each check, record its ledger entry and capture `git status --short` before
+and after execution. A nonzero exit or worktree mutation is a new finding, not
+an implicit approved fix. Stop for host evaluation; after any approved
+remediation, rerun the affected check and the authoritative readiness command.
+
+When the repository already makes pre-commit authoritative, use its documented
+invocation in the appropriate stage. If the branch changes
+`.pre-commit-config.yaml`, run the repository's native configuration validation
+path. Never install pre-commit or bootstrap Git hooks inside this workflow.
 
 A failure is a new finding. Highlight it, return it to the host session, and stop before fixing it.
+
+An optional check may be skipped only by exact check ID with a reason, approver,
+and current-PR scope recorded in the ledger. A required check cannot be skipped
+into `READY_FOR_REVIEW`.
 
 ## Phase 3: Prepare the PR
 
@@ -264,6 +294,7 @@ After all approved work is committed and native CI is clean:
 4. Push normally; never force-push.
 5. Open or update the PR using the repository template.
 6. Read required remote checks to a terminal result. A pending check is reported as pending; a failed check is a new finding and returns through the gate.
+7. Append required remote checks to the same ledger with stage `remote`.
 
 The PR description must include:
 
